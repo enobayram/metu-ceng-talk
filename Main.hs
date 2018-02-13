@@ -1,34 +1,63 @@
 {-# LANGUAGE 
-  GeneralizedNewtypeDeriving
+  DataKinds,
+  TypeOperators,
+  GeneralizedNewtypeDeriving,
+  FlexibleContexts,
+  FlexibleInstances,
+  OverloadedStrings
 #-}
 
 import Prelude hiding (lookup)
+
+import Control.Monad.IO.Class
+import Data.Aeson
 import Data.IORef
 import Data.Map
+import Network.Wai.Handler.Warp
+import Servant
 
-newtype Dollar = Dollar Double deriving (Show, Eq, Ord, Num)
-newtype AccountId = AccountId Int deriving (Show, Eq, Ord)
+newtype Dollar = Dollar Double deriving (Show, Eq, Ord, Num, FromHttpApiData, ToJSON)
+newtype AccountId = AccountId Int deriving (Show, Eq, Ord, FromHttpApiData, ToJSON)
 
 type AccountMap = Map AccountId Dollar
 
-modifyAndPrint 
-  :: (Show state, Show result) 
-  => IORef state
-  -> (state -> (state, result))
-  -> IO ()
-modifyAndPrint state transform = do
-  s1 <- readIORef state
-  let (s2, result) = transform s1
-  writeIORef state s2
-  putStrLn $ show result ++ ": " ++ show s2
-  
+type CreateAPI 
+   = "createAccount" 
+  :> Capture "accountId" AccountId 
+  :> PostNoContent '[JSON] NoContent
+
+type DepositAPI
+   = "deposit" 
+  :> Capture "accountId" AccountId 
+  :> Capture "amount" Dollar
+  :> Post '[JSON] Dollar
+
+type ListAPI 
+   = "list" 
+  :> Get '[JSON] [(AccountId, Dollar)]
 
 main :: IO ()
 main = do
   accountMap <- newIORef (empty :: AccountMap)
-  modifyAndPrint accountMap $ createAccount (AccountId 2)
-  modifyAndPrint accountMap $ deposit (AccountId 2) (Dollar 3.2)
-  modifyAndPrint accountMap $ deposit (AccountId 1) (Dollar 1)
+
+  let createAccount' :: AccountId -> Handler NoContent
+      createAccount' accId = do
+        result <- liftIO $ 
+          atomicModifyIORef accountMap (createAccount accId)
+        case result of
+          Created -> return NoContent
+          AlreadyExists -> throwError err409
+
+      deposit' accId amt = do
+        mbNewAmount <- liftIO $ 
+          atomicModifyIORef accountMap (deposit accId amt)
+        maybe (throwError err400) return mbNewAmount
+      
+      list = liftIO $ toList <$> readIORef accountMap
+
+  run 8080 $ serve api $ createAccount' :<|> deposit' :<|> list
+
+type API = CreateAPI :<|> DepositAPI :<|> ListAPI
 
 data CreateResult = Created | AlreadyExists deriving Show
 
@@ -42,3 +71,6 @@ createAccount accId m =
   if accId `member` m 
   then (m, AlreadyExists) 
   else (insert accId (Dollar 0) m, Created)
+
+api :: Proxy API
+api = Proxy
