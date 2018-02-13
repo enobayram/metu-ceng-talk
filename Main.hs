@@ -3,6 +3,7 @@
 #-}
 
 import Prelude hiding (lookup)
+import Data.IORef
 import Data.Map
 
 newtype Dollar = Dollar Double deriving (Show, Eq, Ord, Num)
@@ -10,16 +11,24 @@ newtype AccountId = AccountId Int deriving (Show, Eq, Ord)
 
 type AccountMap = Map AccountId Dollar
 
+modifyAndPrint 
+  :: (Show state, Show result) 
+  => IORef state
+  -> (state -> (state, result))
+  -> IO ()
+modifyAndPrint state transform = do
+  s1 <- readIORef state
+  let (s2, result) = transform s1
+  writeIORef state s2
+  putStrLn $ show result ++ ": " ++ show s2
+  
+
 main :: IO ()
 main = do
-  let m1 = empty :: AccountMap
-  putStrLn $ show m1
-  let (m2, r2) = createAccount (AccountId 2) m1
-  putStrLn $ show r2 ++ ": " ++ show m2
-  let (m3, r3) = deposit (AccountId 2) (Dollar 3.2) m2
-  putStrLn $ show r3 ++ ": " ++ show m3
-  let (m4, r4) = deposit (AccountId 1) (Dollar 1) m3
-  putStrLn $ show r4 ++ ": " ++ show m4
+  accountMap <- newIORef (empty :: AccountMap)
+  modifyAndPrint accountMap $ createAccount (AccountId 2)
+  modifyAndPrint accountMap $ deposit (AccountId 2) (Dollar 3.2)
+  modifyAndPrint accountMap $ deposit (AccountId 1) (Dollar 1)
 
 data CreateResult = Created | AlreadyExists deriving Show
 
