@@ -48,29 +48,24 @@ type ListAPI
    = "list" 
   :> Get '[JSON] [(AccountId, Dollar)]
 
+type PureCtx a 
+  = StateT AccountMap (Except ServantErr) a
+
 main :: IO ()
 main = do
   accountMap <- newIORef (empty :: AccountMap)
 
   let createAccount' :: AccountId -> Handler NoContent
-      createAccount' accId = do
-        result <- liftIO $ 
-          atomicModifyIORef accountMap (createAccount accId)
-        case result of
-          Created -> return NoContent
-          AlreadyExists -> throwError err409
+      createAccount' accId = 
+        fromPure $ createAccount accId
 
-      deposit' accId amt = do
-        mbNewAmount <- liftIO $ 
-          atomicModifyIORef accountMap (deposit accId amt)
-        maybe (throwError err400) return mbNewAmount
+      deposit' accId amt = 
+        fromPure $ deposit accId amt
 
       transfer' from to amt = 
         fromPure $ transfer from to amt
 
-      fromPure 
-        :: StateT AccountMap (Except ServantErr) r
-        -> Handler r
+      fromPure :: PureCtx r -> Handler r
       fromPure p = do
         result <- liftIO $ atomicModifyIORef accountMap $ \m ->
           case runExcept $ runStateT p m of
@@ -90,7 +85,7 @@ type API = CreateAPI :<|> DepositAPI :<|> TransferAPI :<|> ListAPI
 data CreateResult = Created | AlreadyExists deriving Show
 
 transfer :: AccountId -> AccountId -> Dollar 
-  -> StateT AccountMap (Except ServantErr) NoContent
+  -> PureCtx NoContent
 transfer from to amt = do
   remaining <- at from <%= fmap (subtract amt)
   case remaining of
@@ -103,16 +98,17 @@ transfer from to amt = do
     Just _ -> return NoContent
   where doesntExistError acc = throwError $ err400 { errBody = acc <> " doesn't exist" }
 
-deposit :: AccountId -> Dollar -> AccountMap -> (AccountMap, Maybe Dollar)
-deposit accId amt m = case accId `lookup` m of 
-  Just old -> (adjust (+amt) accId m, Just $ old + amt)
-  Nothing -> (m, Nothing)
+deposit :: AccountId -> Dollar -> PureCtx Dollar
+deposit accId amt = do
+  mbNewAmount <- at accId <%= fmap (+amt)
+  maybe (throwError err400) return mbNewAmount
 
-createAccount :: AccountId -> AccountMap -> (AccountMap, CreateResult)
-createAccount accId m = 
-  if accId `member` m 
-  then (m, AlreadyExists) 
-  else (insert accId (Dollar 0) m, Created)
+createAccount :: AccountId -> PureCtx NoContent
+createAccount accId = do
+  old <- at accId <<.= Just (Dollar 0)
+  case old of
+    Just _ -> throwError err409
+    Nothing -> return NoContent
 
 api :: Proxy API
 api = Proxy
