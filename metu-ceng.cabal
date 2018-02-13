@@ -1,0 +1,29 @@
+name:                metu-ceng
+version:             0.1.0.0
+-- synopsis:
+-- description:
+homepage:            https://github.com/githubuser/metu-ceng#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Enis Bayramoğlu
+maintainer:          example@example.com
+copyright:           2018 Enis Bayramoğlu
+category:            Web
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+executable metu-ceng-exe
+  hs-source-dirs:      .
+  main-is:             Main.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , aeson
+                     , containers
+                     , lens
+                     , servant-server
+                     , servant-docs
+                     , transformers
+                     , wai
+                     , warp
+  default-language:    Haskell2010
