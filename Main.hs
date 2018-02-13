@@ -65,12 +65,17 @@ main = do
           atomicModifyIORef accountMap (deposit accId amt)
         maybe (throwError err400) return mbNewAmount
 
-      transfer' from to amt = do
-        result <- liftIO $ 
-          atomicModifyIORef accountMap $ \m ->
-            case runExcept $ runStateT (transfer from to amt) m of
-              Left err -> (m, Left err)
-              Right (out, m') -> (m', Right out)
+      transfer' from to amt = 
+        fromPure $ transfer from to amt
+
+      fromPure 
+        :: StateT AccountMap (Except ServantErr) r
+        -> Handler r
+      fromPure p = do
+        result <- liftIO $ atomicModifyIORef accountMap $ \m ->
+          case runExcept $ runStateT p m of
+            Left err -> (m, Left err)
+            Right (out, m') -> (m', Right out)
         case result of
           Left err -> throwError err
           Right r -> return r
